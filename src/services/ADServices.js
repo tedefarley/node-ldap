@@ -1,5 +1,6 @@
 const ldap = require('./ldapClient')
 const config = require('../config/config')
+const { Attribute, Change } = require('ldapts')
 
 /**
  * @author Teddy Farley
@@ -13,7 +14,7 @@ const config = require('../config/config')
  */
 const getGUID = async (cname, objectClass) => {
     const ad3Client = await ldap.createClient('ad3')
-    // const ouClient = await ldap.createClient()
+    const ouClient = await ldap.createClient()
 
     // if(objectClass == 'user') {
 
@@ -33,11 +34,20 @@ const getGUID = async (cname, objectClass) => {
         attributes: ['ObjectGUID;binary']
     }
 
-    const ad3Result = ad3Client.search(config.AD_USERS_BASE, options)
-    // const ouResult = ouClient.search(config.OU_GROUPS_BASE, options)
+    try {
+        const ad3Result = await ad3Client.search(config.AD3_USERS_BASE, options)
+        const ouResult = await ouClient.search(config.OU_GROUPS_BASE, options)
 
-    return ad3Result.searchEntries[0]['objectGUID;binary'].toString('hex')
-    // ouResult.searchEntries[0]['objectGUID;binary'].toString('hex')
+        return ad3Result.searchEntries[0]['objectGUID;binary'].toString('hex') 
+        || ouResult.searchEntries[0]['objectGUID;binary'].toString('hex')
+    } catch (err) {
+        ad3Client.unbind()
+        ouClient.unbind()
+        throw err
+    } finally {
+        ad3Client.unbind()
+        ouClient.unbind()
+    }
 }
 
 /**
@@ -66,23 +76,174 @@ const getADUser = async (user, options) => {
     //     filter: defaultOptions.filter
     // }
 
-    const searchOptions = {
+    const searchOptions = options || {
         ...options,
         filter: `(cn=${user})`
     }
 
-    console.log(searchOptions)
-
+    /**
+     * Client search method.
+     * @param {string} - Search base.
+     * @param {object} options - Search scope and filters.
+     */
     try {
-        /**
-         * Client search method.
-         * @param {string} - Search base.
-         * @param {object} options - Search scope and filters.
-         */
-        const {searchEntries} = await client.search(config.AD_USERS_BASE, searchOptions)
+        const { searchEntries } = await client.search(config.AD3_USERS_BASE, searchOptions)
         console.log(searchEntries[0])
         return searchEntries[0]
     } catch (err) {
+        client.unbind()
+        throw err
+    } finally {
+        client.unbind()
+    }
+}
+
+const getADGroup = async (group, options) => {
+    const client = await ldap.createClient('ou')
+
+    const searchOptions = options || {
+        ...options,
+        filter: `(cn=${group})`
+    }
+
+    /**
+     * Client search method.
+     * @param {string} - Search base.
+     * @param {object} options - Search scope and filters.
+     */
+    try {
+        const { searchEntries } = await client.search(config.OU_GROUPS_BASE, searchOptions)
+        console.log(searchEntries[0])
+        return searchEntries[0]
+    } catch (err) {
+        client.unbind()
+        throw err
+    } finally {
+        client.unbind()
+    }
+}
+
+const getADGroupMembers = async (groupName) => {
+    const group = await getADGroup(groupName)
+    return group.member
+}
+
+// const getADUserEmail = async (userName) => {
+//     const user = await getADUser(userName)
+//     return user.mail
+// }
+
+/**
+ * Adds a member or members to a specified group.
+ * @param {String[]} memberNames - Names of members.
+ * @param {string} groupName - Group in which to add members.
+ * @param {Object} options - (Optional) An object with options
+ */
+const addMembersToGroup = async (memberNames, groupName) => {
+    const group = await getADGroup(groupName)
+    debugger
+    const members = await Promise.all(memberNames.map((memberNames) => getADUser(memberNames) || getADGroup(memberNames)))
+    const memberDNs = members.map((member) => member.dn)
+
+    console.log(members)
+    console.log(memberDNs)
+
+    const client = await ldap.createClient('ou')
+
+    const change = new Change({
+        operation: 'add',
+        modification: new Attribute({
+            type: 'member',
+            values: memberDNs            
+        }),
+    })
+
+    console.log(change)
+
+    try {
+        await client.modify(group.dn, change)
+    } catch (err) {
+        client.unbind()
+        throw err
+    } finally {
+        client.unbind()
+    }
+}
+
+/**
+ * Adds a member or members to a specified group.
+ * @param {String[]} memberNames - Names of members.
+ * @param {string} groupName - Group in which to add members.
+ * @param {Object} options - (Optional) An object with options
+ */
+ const removeMembersFromGroup = async (memberNames, groupName) => {
+    const group = await getADGroup(groupName)
+    // if(Array.isArray(memberNames)) {
+        const members = await Promise.all(memberNames.map((memberNames) => getADUser(memberNames) || getADGroup(memberNames)))
+        const memberDNs = members.map((member) => member.dn)
+    // } else if(typeof memberNames == 'string') {
+    //     const members = await getADUser(memberNames) || await getADGroup(memberNames)
+    //     const memberDNs = members.dn
+    // } else {
+    //     throw new Error({
+    //         Error: 'Type Error',
+    //         message: `Unhandled argument type: ${typeof memberNames}`
+    //     })
+    // }
+
+    const client = await ldap.createClient('ou')
+
+    const change = new Change({
+        operation: 'delete',
+        modification: new Attribute({
+            type: 'member',
+            values: memberDNs            
+        }),
+    })
+
+    try {
+        await client.modify(group.dn, change)
+    } catch (err) {
+        client.unbind()
+        throw err
+    } finally {
+        client.unbind()
+    }
+}
+
+const createADGroup = async (groupName, options) => {
+    const client = await client.createClient('ou')
+
+    const groupDN = `CN=${groupName.toUpperCase},${config.OU_TEST_BASE}`
+    const groupOptions = options || {
+        ...options,
+        cn: groupName.toUpperCase(),
+        objectClass: ['top', 'group'],
+        description: 'Group created by AD web service',
+        samaccountname: groupName.toUpperCase(),
+        objectCategory: 'CN=Group,CN=Schema,CN=Configuration,DC=ad3,DC=ucdavis,DC=edu',
+        groupType: '-2147483640'
+    }
+
+    try{
+        await client.add(groupDN, groupOptions)                
+    } catch (err) {
+        client.unbind()
+        throw err
+    } finally {
+        client.unbind()
+    }
+}
+
+const deleteADGroup = async (groupName) => {
+    const client = await client.createClient('ou')
+
+    const member = await getADGroup(cname)
+
+    try{
+        await client.del(member)                
+    } catch (err) {
+        client.unbind()
         throw err
     } finally {
         client.unbind()
@@ -91,5 +252,11 @@ const getADUser = async (user, options) => {
 
 module.exports = {
     getGUID,
-    getADUser
+    getADUser,
+    getADGroup,
+    getADGroupMembers,
+    addMembersToGroup,
+    removeMembersFromGroup,
+    createADGroup,
+    deleteADGroup
 }

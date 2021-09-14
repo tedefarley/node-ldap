@@ -1,14 +1,11 @@
-const config = require('./config/config')
 const ADServices = require('./services/ADServices')
 
-const test = async () => {
+const main = async () => {
     try {
-        console.log(config.AD_USER)
-        // console.log(ADServices.getGUID('tefarley'))
+        await ADServices.removeMembersFromGroup(['tefarley', 'jwtrask'], 'LS-US-IT-TESTER-3')
     } catch (err)  {
         console.log(err)
-    } finally {
-        client.unbind()
     }
 }
-test()
+
+main()

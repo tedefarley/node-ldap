@@ -2,31 +2,12 @@ const v8 = require('./v8clone')
 const config = require('../config/config')
 const { Client } = require('ldapts')
 
-/**
- * @author Teddy Farley
- */
-
-// Options to default to if none are specified. Use for reference.
-const defaultOptions = {
-    host: config.OU_LDAP_HOST,
-    port: config.LDAP_PORT,
-    ssl: true,
-    clientOptions: {
-        url: config.OU_LDAPS_URL,
-        tlsOptions: {
-            rejectUnauthorized: false
-        }
-    },
-    credentials: {
-        bindDN: config.AD_USER,
-        bindPass: config.AD_USER_PASS
-    }
-}
-
 /** 
 * Initiates and returns a parametric ldap client.
+* @author Teddy Farley
+*
 * @param {string} type - Denotes whether the client authenticates with the 'ou' or 'ad3' domain controller. Default 'ou'
-* @param {object|string} options - Object with optional nested client parameters :
+* @param {object|string} options (optional) - Object with optional nested client parameters :
 * options {
     * @param {string} host: - Default 'oudc14c.ou.ad3.ucdavis.edu'.
     * @param {int|string} port: - Default is undefined unless sll is enabled, in which default is 636.
@@ -49,52 +30,7 @@ const defaultOptions = {
 * @return {Promise|Object} - Returns an ldap client based on specifications.
 * 
 */
-const createClient = async (type = 'ou', options = defaultOptions) => {
-    console.log(type, options)
-    /**
-     * 
-     * @param {string} type - See above.
-     * @param {object} options - See avove.
-     * @return {object} - Returns a new options object with updated parameters
-     */
-    const initOptions = () => {
-        let initHost
-        let initURL
-        if(type == 'ad3') {
-            initHost = config.AD3_LDAP_HOST
-            if(!options.ssl) {
-                initURL = `ldap://${initHost}`
-            } else {
-                initURL = config.AD3_LDAPS_URL
-            }
-        }
-        else if(type == 'ou') {
-            if(!options.ssl) {
-                initURL = `ldap://${options.host}`
-            }
-        }
-        else {
-            // console.error(`Error - Invalid client type: ${type}`)
-            throw new Error({
-                Error: 'Type Error',
-                message: `Invalid client type: ${type}`
-            })
-        }
-
-        const finalOptions = Object.assign(
-            {},
-            options,
-            {
-                [options.host]: initHost,
-                [options.clientOptions]: {
-                    [options.clientOptions.url]: initURL
-                }
-            }
-        )
-
-        return finalOptions
-    }
-
+const createClient = async (type = 'ou', options) => {
     const newOptions = {
         host: config[`${type.toUpperCase()}_LDAP_HOST`],
         port: config.LDAP_PORT,
@@ -110,8 +46,6 @@ const createClient = async (type = 'ou', options = defaultOptions) => {
             bindPass: config.AD_USER_PASS
         }
     }
-
-    console.log(newOptions)
 
     // Create a new client with params.
     const client = new Client(newOptions.clientOptions)

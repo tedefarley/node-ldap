@@ -1,25 +1,11 @@
-require('dotenv').config({ path: './src/config/.env' })
+const ADServices = require('./src/services/ADServices')
 
-const ldap = require('ldapjs')
-const client = ldap.createClient({ url: process.env.LDAP_URL })
-
-client.bind(
-    process.env.AD_USER, 
-    process.env.AD_PASSWORD, 
-    (err) => { 
-        if(err) throw err
-        else {
-            client.unbind()
-        }
+const main = async () => {
+    try {
+        await ADServices.removeMembersFromGroup(['tefarley'], 'LS-US-IT-TESTER-3')
+    } catch (err)  {
+        console.log(err)
     }
-)
+}
 
-const search = client.search(
-    "OU=LS,OU=DEPARTMENTS,DC=OU,DC=AD3,DC=UCDAVIS,DC=EDU",
-    { scope: 'base' },
-    (err) => { 
-        if(err) throw err 
-    }
-)
-
-console.log(search)
+main()
